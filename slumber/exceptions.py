@@ -18,6 +18,12 @@ class SlumberHttpBaseException(SlumberBaseException):
         super(SlumberHttpBaseException, self).__init__(*args)
 
 
+class SlumberAuthenticationError(SlumberBaseException):
+    """
+    Called when the server tells us there was a client error (4xx).
+    """
+
+
 class HttpClientError(SlumberHttpBaseException):
     """
     Called when the server tells us there was a client error (4xx).

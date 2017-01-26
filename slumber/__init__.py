@@ -8,6 +8,7 @@ except ImportError:
 from . import exceptions
 from .serialize import Serializer
 from .utils import url_join, iterator, copy_kwargs
+from .auth import TokenAuth, HTTPBasicAuth
 
 __all__ = ["Resource", "API"]
 
@@ -94,13 +95,21 @@ class Resource(ResourceAttributesMixin, object):
             if data is not None:
                 data = serializer.dumps(data)
 
-        resp = self._store["session"].request(method, url, data=data, params=params, files=files, headers=headers)
-
+        resp = self._store["session"].request(
+            method, url, data=data, params=params, files=files, headers=headers
+        )
         if 400 <= resp.status_code <= 499:
-            exception_class = exceptions.HttpNotFoundError if resp.status_code == 404 else exceptions.HttpClientError
-            raise exception_class("Client Error %s: %s" % (resp.status_code, url), response=resp, content=resp.content)
+            exception_class = exceptions.HttpNotFoundError if \
+                resp.status_code == 404 else exceptions.HttpClientError
+            raise exception_class(
+                "Client Error {}: {}\nResponse: {}".format(
+                    resp.status_code, url, resp.text),
+                response=resp, content=resp.content)
         elif 500 <= resp.status_code <= 599:
-            raise exceptions.HttpServerError("Server Error %s: %s" % (resp.status_code, url), response=resp, content=resp.content)
+            raise exceptions.HttpServerError(
+                "Server Error {}: {}".format(
+                    resp.status_code, url),
+                response=resp, content=resp.content)
 
         self._ = resp
 
@@ -190,10 +199,17 @@ class Resource(ResourceAttributesMixin, object):
 
 
 class API(ResourceAttributesMixin, object):
-
+    api_url = ''
+    append_slash = True
+    serializer = Serializer
     resource_class = Resource
+    token_auth = True
 
-    def __init__(self, base_url=None, auth=None, format=None, append_slash=True, session=None, serializer=None):
+    def __init__(self, api_url=None, auth=None, format="json", session=None,
+                 serializer=None, append_slash=True, token_auth_url=None):
+        self.api_url = api_url
+        self.append_slash = append_slash
+
         if serializer is None:
             serializer = Serializer(default=format)
 
@@ -201,19 +217,25 @@ class API(ResourceAttributesMixin, object):
             session = requests.session()
 
         if auth is not None:
-            session.auth = auth
+            if token_auth_url:
+                url = urlsplit(token_auth_url)  # In case it's relative
+                url = url_join(api_url, url.path.strip('/')
+                               if not url.scheme else url.path)
+                session.auth = TokenAuth(*auth, auth_url=url)
+            else:
+                session.auth = HTTPBasicAuth(*auth)
 
         self._store = {
-            "base_url": base_url,
-            "format": format if format is not None else "json",
+            "base_url": api_url,
+            "format": format,
             "append_slash": append_slash,
             "session": session,
             "serializer": serializer,
         }
 
         # Do some Checks for Required Values
-        if self._store.get("base_url") is None:
-            raise exceptions.ImproperlyConfigured("base_url is required")
+        if not self.api_url:
+            raise exceptions.ImproperlyConfigured("api_url is required")
 
     def _get_resource(self, **kwargs):
         return self.resource_class(**kwargs)
